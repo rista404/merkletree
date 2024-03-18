@@ -1,15 +1,6 @@
 use sha2::{Digest, Sha256};
 
-const POS_LEFT: u8 = 0;
-const POS_RIGHT: u8 = 1;
-
 type Hash = [u8; 32];
-
-#[derive(Debug)]
-pub struct MerkleProofStep {
-    position: u8,
-    hash: Hash,
-}
 
 #[derive(Debug)]
 pub struct MerkleTree<T: AsBytes> {
@@ -59,22 +50,15 @@ impl<T: AsBytes> MerkleTree<T> {
         self.tree.first().unwrap().clone()
     }
 
-    pub fn proof(&self, val: T) -> Vec<MerkleProofStep> {
+    pub fn proof(&self, val: T) -> Vec<Hash> {
         let mut hasher = Sha256::new();
         hasher.update(val.as_bytes());
         let hash: Hash = hasher.finalize().try_into().unwrap();
         let leaf_idx = self.leaves().iter().position(|x| *x == hash).unwrap();
 
-        let mut proof: Vec<MerkleProofStep> = vec![];
+        let mut proof: Vec<Hash> = vec![];
 
-        proof.push(MerkleProofStep {
-            position: if leaf_idx % 2 == 0 {
-                POS_LEFT
-            } else {
-                POS_RIGHT
-            },
-            hash,
-        });
+        proof.push(hash);
 
         let mut node_idx = leaf_idx;
         for level_idx in 0..self.tree.len() - 1 {
@@ -84,15 +68,7 @@ impl<T: AsBytes> MerkleTree<T> {
                 node_idx - 1
             };
             let sibling = self.tree[level_idx].get(sibling_idx).unwrap();
-            let position = if sibling_idx % 2 == 0 {
-                POS_LEFT
-            } else {
-                POS_RIGHT
-            };
-            proof.push(MerkleProofStep {
-                position,
-                hash: sibling.clone(),
-            });
+            proof.push(sibling.clone());
             node_idx = node_idx / 2;
         }
 
@@ -100,7 +76,7 @@ impl<T: AsBytes> MerkleTree<T> {
     }
 }
 
-pub fn verify_proof<T: AsBytes>(proof: Vec<MerkleProofStep>, value: T, root_hash: Hash) -> bool {
+pub fn verify_proof<T: AsBytes>(proof: Vec<Hash>, value: T, index: usize, root_hash: Hash) -> bool {
     if proof.len() == 0 {
         panic!("Proof cannot be empty.");
     }
@@ -109,29 +85,31 @@ pub fn verify_proof<T: AsBytes>(proof: Vec<MerkleProofStep>, value: T, root_hash
     hasher.update(value.as_bytes());
     let value_hash: Hash = hasher.finalize().try_into().unwrap();
 
-    if value_hash != proof.first().unwrap().hash {
+    if value_hash != *proof.first().unwrap() {
         return false;
     }
 
-    let mut last = value_hash;
-    for step in proof.iter().skip(1) {
+    let mut last_hash = value_hash;
+    let mut last_idx = index;
+    for witness in proof.iter().skip(1) {
         let mut hasher = Sha256::new();
 
-        match step.position {
-            POS_LEFT => {
-                hasher.update(step.hash);
-                hasher.update(last);
+        match last_idx % 2 {
+            0 => {
+                hasher.update(last_hash);
+                hasher.update(witness);
             }
-            POS_RIGHT => {
-                hasher.update(last);
-                hasher.update(step.hash);
+            1 => {
+                hasher.update(witness);
+                hasher.update(last_hash);
             }
-            _ => panic!("Invalid proof step position."),
+            _ => unreachable!(),
         }
-        last = hasher.finalize().try_into().unwrap();
+        last_hash = hasher.finalize().try_into().unwrap();
+        last_idx /= 2;
     }
 
-    last == root_hash
+    last_hash == root_hash
 }
 
 pub trait AsBytes {
@@ -197,26 +175,53 @@ mod tests {
     }
 
     #[test]
+    fn it_returns_correct_proof() {
+        let seq = vec!["a", "b", "c", "d", "e", "f"];
+        let tree = MerkleTree::build(seq.clone());
+        let proof = tree.proof("a");
+
+        let expected_proof = [
+            "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+            "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+            "bffe0b34dba16bc6fac17c08bac55d676cded5a4ade41fe2c9924a5dde8f3e5b",
+            "20644c0eb539e6f0efb9569a8aa45429a44f3c769c5cc9a69ef0901a4a05e49d",
+        ];
+        let expected_proof_bytes: Vec<Hash> = expected_proof
+            .into_iter()
+            .map(|x| hex::decode(x).unwrap().try_into().unwrap())
+            .collect();
+
+        assert_eq!(proof, expected_proof_bytes);
+    }
+
+    #[test]
     fn it_verifies_a_valid_proof() {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
         let proof = tree.proof("1");
-        assert!(verify_proof(proof, "1", tree.root()));
+        assert!(verify_proof(proof, "1", 0, tree.root()));
 
         let proof_2 = tree.proof("2");
-        assert!(verify_proof(proof_2, "2", tree.root()));
+        assert!(verify_proof(proof_2, "2", 1, tree.root()));
     }
 
     #[test]
     fn it_fails_an_invalid_proof() {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
         let proof = tree.proof("2");
-        assert_eq!(false, verify_proof(proof, "1", tree.root()));
+        assert_eq!(false, verify_proof(proof, "1", 0, tree.root()));
+    }
+
+    #[test]
+    fn it_fails_an_invalid_index() {
+        let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
+        let proof = tree.proof("3");
+        assert_eq!(false, verify_proof(proof, "3", 3, tree.root()));
     }
 
     #[test]
     fn it_fails_an_invalid_root() {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
         let proof = tree.proof("2");
-        assert_eq!(false, verify_proof(proof, "2", [0; 32]));
+        assert_eq!(false, verify_proof(proof, "2", 1, [0; 32]));
     }
 }
