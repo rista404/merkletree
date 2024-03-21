@@ -50,7 +50,12 @@ impl<T: AsBytes> MerkleTree<T> {
         self.tree.first().unwrap().clone()
     }
 
-    pub fn proof(&self, val: T) -> Vec<Hash> {
+    pub fn proof_for_index(&self, index: usize) -> Vec<Hash> {
+        let value = self.values.get(index).unwrap();
+        self.proof(value)
+    }
+
+    pub fn proof(&self, val: &T) -> Vec<Hash> {
         let mut hasher = Sha256::new();
         hasher.update(val.as_bytes());
         let hash: Hash = hasher.finalize().try_into().unwrap();
@@ -76,7 +81,12 @@ impl<T: AsBytes> MerkleTree<T> {
     }
 }
 
-pub fn verify_proof<T: AsBytes>(proof: Vec<Hash>, value: T, index: usize, root_hash: Hash) -> bool {
+pub fn verify_proof<T: AsBytes>(
+    proof: Vec<Hash>,
+    value: &T,
+    index: usize,
+    root_hash: Hash,
+) -> bool {
     if proof.len() == 0 {
         panic!("Proof cannot be empty.");
     }
@@ -168,9 +178,16 @@ mod tests {
     }
 
     #[test]
+    fn it_generates_proof_for_index() {
+        let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
+        let proof = tree.proof_for_index(0);
+        assert_eq!(proof.len(), 3);
+    }
+
+    #[test]
     fn it_generates_proof() {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
-        let proof = tree.proof("1");
+        let proof = tree.proof(&"1");
         assert_eq!(proof.len(), 3);
     }
 
@@ -178,7 +195,7 @@ mod tests {
     fn it_returns_correct_proof() {
         let seq = vec!["a", "b", "c", "d", "e", "f"];
         let tree = MerkleTree::build(seq.clone());
-        let proof = tree.proof("a");
+        let proof = tree.proof_for_index(0);
 
         let expected_proof = [
             "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
@@ -197,31 +214,31 @@ mod tests {
     #[test]
     fn it_verifies_a_valid_proof() {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
-        let proof = tree.proof("1");
-        assert!(verify_proof(proof, "1", 0, tree.root()));
+        let proof = tree.proof(&"1");
+        assert!(verify_proof(proof, &"1", 0, tree.root()));
 
-        let proof_2 = tree.proof("2");
-        assert!(verify_proof(proof_2, "2", 1, tree.root()));
+        let proof_2 = tree.proof(&"2");
+        assert!(verify_proof(proof_2, &"2", 1, tree.root()));
     }
 
     #[test]
     fn it_fails_an_invalid_proof() {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
-        let proof = tree.proof("2");
-        assert_eq!(false, verify_proof(proof, "1", 0, tree.root()));
+        let proof = tree.proof(&"2");
+        assert_eq!(false, verify_proof(proof, &"1", 0, tree.root()));
     }
 
     #[test]
     fn it_fails_an_invalid_index() {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
-        let proof = tree.proof("3");
-        assert_eq!(false, verify_proof(proof, "3", 3, tree.root()));
+        let proof = tree.proof(&"3");
+        assert_eq!(false, verify_proof(proof, &"3", 3, tree.root()));
     }
 
     #[test]
     fn it_fails_an_invalid_root() {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
-        let proof = tree.proof("2");
-        assert_eq!(false, verify_proof(proof, "2", 1, [0; 32]));
+        let proof = tree.proof(&"2");
+        assert_eq!(false, verify_proof(proof, &"2", 1, [0; 32]));
     }
 }
