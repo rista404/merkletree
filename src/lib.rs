@@ -9,19 +9,22 @@ pub struct MerkleTree<T: AsBytes> {
     tree: Vec<Vec<Hash>>,
 }
 
+fn hash_leaf(input: &[u8]) -> Hash {
+    let hash = |bs: &[u8]| -> Hash {
+        let mut hasher = Sha256::new();
+        hasher.update(bs);
+        hasher.finalize().try_into().unwrap()
+    };
+
+    return hash(&hash(input));
+}
+
 impl<T: AsBytes> MerkleTree<T> {
     // TODO potentially prefix leaves and internal nodes
     pub fn build(values: Vec<T>) -> Self {
         assert!(values.len() > 0, "Merkle tree must have at least one value");
 
-        let leaves: Vec<Hash> = values
-            .iter()
-            .map(|x| {
-                let mut hasher = Sha256::new();
-                hasher.update(x.as_bytes());
-                hasher.finalize().try_into().unwrap()
-            })
-            .collect();
+        let leaves: Vec<Hash> = values.iter().map(|x| hash_leaf(x.as_bytes())).collect();
 
         let mut tree = vec![leaves];
         while tree.last().unwrap().len() > 1 {
@@ -56,9 +59,7 @@ impl<T: AsBytes> MerkleTree<T> {
     }
 
     pub fn proof(&self, val: &T) -> Vec<Hash> {
-        let mut hasher = Sha256::new();
-        hasher.update(val.as_bytes());
-        let hash: Hash = hasher.finalize().try_into().unwrap();
+        let hash = hash_leaf(val.as_bytes());
         let leaf_idx = self.leaves().iter().position(|x| *x == hash).unwrap();
 
         let mut proof: Vec<Hash> = vec![];
@@ -91,10 +92,7 @@ pub fn verify_proof<T: AsBytes>(
         panic!("Proof cannot be empty.");
     }
 
-    let mut hasher = Sha256::new();
-    hasher.update(value.as_bytes());
-    let value_hash: Hash = hasher.finalize().try_into().unwrap();
-
+    let value_hash = hash_leaf(value.as_bytes());
     if value_hash != *proof.first().unwrap() {
         return false;
     }
@@ -178,7 +176,7 @@ mod tests {
     #[test]
     fn it_returns_correct_root() {
         let seq = vec!["a", "b", "c", "d", "e", "f"];
-        let expected_root_hex = "44205acec5156114821f1f71d87c72e0de395633cd1589def6d4444cc79f8103";
+        let expected_root_hex = "feb77f593c70b7ed78a91ca560cbb22bbd59a57435347f3a13e6cfe8cd1cd3b4";
         let tree = MerkleTree::build(seq.clone());
         assert_eq!(hex::decode(expected_root_hex).unwrap(), tree.root());
     }
@@ -204,10 +202,10 @@ mod tests {
         let proof = tree.proof_for_index(0);
 
         let expected_proof = [
-            "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
-            "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
-            "bffe0b34dba16bc6fac17c08bac55d676cded5a4ade41fe2c9924a5dde8f3e5b",
-            "20644c0eb539e6f0efb9569a8aa45429a44f3c769c5cc9a69ef0901a4a05e49d",
+            "bf5d3affb73efd2ec6c36ad3112dd933efed63c4e1cbffcfa88e2759c144f2d8",
+            "39361160903c6695c6804b7157c7bd10013e9ba89b1f954243bc8e3990b08db9",
+            "ea0e26f7cde803d8090cf15c25d7842a1adc46a390405bcd7bb158258774e270",
+            "a92b7d95b0924513886d25cd20da9a2493a42d7e14b6b1032420f2440399f986",
         ];
         let expected_proof_bytes: Vec<Hash> = expected_proof
             .into_iter()
@@ -254,29 +252,35 @@ mod tests {
         let tree = MerkleTree::build(seq.clone());
 
         // original proof
-        // "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
-        // "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
-        // "bffe0b34dba16bc6fac17c08bac55d676cded5a4ade41fe2c9924a5dde8f3e5b",
-        // "20644c0eb539e6f0efb9569a8aa45429a44f3c769c5cc9a69ef0901a4a05e49d",
+        // "bf5d3affb73efd2ec6c36ad3112dd933efed63c4e1cbffcfa88e2759c144f2d8",
+        // "39361160903c6695c6804b7157c7bd10013e9ba89b1f954243bc8e3990b08db9",
+        // "ea0e26f7cde803d8090cf15c25d7842a1adc46a390405bcd7bb158258774e270",
+        // "a92b7d95b0924513886d25cd20da9a2493a42d7e14b6b1032420f2440399f986",
         let mut proof = tree.proof_for_index(0);
-        proof.remove(0);
-        proof.remove(0);
-        let inter: [u8; 32] =
-            hex::decode("e5a01fee14e0ed5c48714f22180f25ad8365b53f9779f79dc4a3d7e93963f94a")
-                .unwrap()
-                .try_into()
-                .unwrap();
-        proof.insert(0, inter);
-        // modified, shorter proof
-        // "e5a01fee14e0ed5c48714f22180f25ad8365b53f9779f79dc4a3d7e93963f94a",
-        // "bffe0b34dba16bc6fac17c08bac55d676cded5a4ade41fe2c9924a5dde8f3e5b",
-        // "20644c0eb539e6f0efb9569a8aa45429a44f3c769c5cc9a69ef0901a4a05e49d",
 
-        // we concat two previous hashes and present as the leaf value
-        // ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb
-        // 3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d
-        let value = hex::decode("ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d")
-            .unwrap();
+        // first verify the proof is valid
+        assert_eq!(true, verify_proof(proof.clone(), &seq[0], 0, tree.root()));
+
+        let one = proof.remove(0);
+        let two = proof.remove(0);
+
+        // concat first two hashes and present as the leaf value
+        // bf5d3affb73efd2ec6c36ad3112dd933efed63c4e1cbffcfa88e2759c144f2d8
+        // 39361160903c6695c6804b7157c7bd10013e9ba89b1f954243bc8e3990b08db9
+        let mut value: Vec<u8> = (0..64).collect();
+        value[..32].clone_from_slice(&one);
+        value[32..].clone_from_slice(&two);
+
+        // hash the concatenated value as if was a leaf
+        // and add it to the proof
+        let inter = hash_leaf(value.as_bytes());
+        // b767a3a12f5f8bb1949d163c51f9a42e6bda8dcd02d50353717f73d4338b1bf0
+        proof.insert(0, inter);
+
+        // modified, shorter proof
+        // "b767a3a12f5f8bb1949d163c51f9a42e6bda8dcd02d50353717f73d4338b1bf0",
+        // "ea0e26f7cde803d8090cf15c25d7842a1adc46a390405bcd7bb158258774e270",
+        // "a92b7d95b0924513886d25cd20da9a2493a42d7e14b6b1032420f2440399f986",
 
         assert_eq!(false, verify_proof(proof, &value, 0, tree.root()));
     }
