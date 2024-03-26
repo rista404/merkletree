@@ -138,6 +138,12 @@ impl AsBytes for String {
     }
 }
 
+impl AsBytes for Vec<u8> {
+    fn as_bytes(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
 impl<'a> AsBytes for &'a [u8] {
     fn as_bytes(&self) -> &[u8] {
         *self
@@ -240,5 +246,38 @@ mod tests {
         let tree = MerkleTree::build(vec!["1", "2", "3", "4"]);
         let proof = tree.proof(&"2");
         assert_eq!(false, verify_proof(proof, &"2", 1, [0; 32]));
+    }
+
+    #[test]
+    fn it_fails_a_shorter_proof() {
+        let seq = vec!["a", "b", "c", "d", "e", "f"];
+        let tree = MerkleTree::build(seq.clone());
+
+        // original proof
+        // "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+        // "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+        // "bffe0b34dba16bc6fac17c08bac55d676cded5a4ade41fe2c9924a5dde8f3e5b",
+        // "20644c0eb539e6f0efb9569a8aa45429a44f3c769c5cc9a69ef0901a4a05e49d",
+        let mut proof = tree.proof_for_index(0);
+        proof.remove(0);
+        proof.remove(0);
+        let inter: [u8; 32] =
+            hex::decode("e5a01fee14e0ed5c48714f22180f25ad8365b53f9779f79dc4a3d7e93963f94a")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        proof.insert(0, inter);
+        // modified, shorter proof
+        // "e5a01fee14e0ed5c48714f22180f25ad8365b53f9779f79dc4a3d7e93963f94a",
+        // "bffe0b34dba16bc6fac17c08bac55d676cded5a4ade41fe2c9924a5dde8f3e5b",
+        // "20644c0eb539e6f0efb9569a8aa45429a44f3c769c5cc9a69ef0901a4a05e49d",
+
+        // we concat two previous hashes and present as the leaf value
+        // ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb
+        // 3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d
+        let value = hex::decode("ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d")
+            .unwrap();
+
+        assert_eq!(false, verify_proof(proof, &value, 0, tree.root()));
     }
 }
