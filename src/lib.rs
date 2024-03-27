@@ -295,4 +295,20 @@ mod tests {
 
         assert_eq!(false, verify_proof(proof, &value, 0, tree.root()));
     }
+
+    #[test]
+    fn it_fails_invalid_value_single_leaf() {
+        let seq = vec!["a"];
+        let tree = MerkleTree::build(seq.clone());
+        let proof = tree.proof_for_index(0);
+        assert_eq!(false, verify_proof(proof.clone(), &"b", 0, tree.root()));
+    }
+
+    #[test]
+    fn it_fails_invalid_index_single_leaf() {
+        let seq = vec!["a"];
+        let tree = MerkleTree::build(seq.clone());
+        let proof = tree.proof_for_index(0);
+        assert_eq!(false, verify_proof(proof.clone(), &seq[0], 1, tree.root()));
+    }
 }
