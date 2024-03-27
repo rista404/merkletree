@@ -73,7 +73,10 @@ impl<T: AsBytes> MerkleTree<T> {
             } else {
                 node_idx - 1
             };
-            let sibling = self.tree[level_idx].get(sibling_idx).unwrap();
+            let sibling = match self.tree[level_idx].get(sibling_idx) {
+                Some(s) => s,
+                None => self.tree[level_idx].get(node_idx).unwrap(),
+            };
             proof.push(sibling.clone());
             node_idx = node_idx / 2;
         }
@@ -223,6 +226,14 @@ mod tests {
 
         let proof_2 = tree.proof(&"2");
         assert!(verify_proof(proof_2, &"2", 1, tree.root()));
+    }
+
+    #[test]
+    fn it_verifies_an_odd_leaf() {
+        let seq = vec!["a", "b", "c"];
+        let tree = MerkleTree::build(seq.clone());
+        let proof = tree.proof_for_index(2);
+        assert!(verify_proof(proof, &seq[2], 2, tree.root()));
     }
 
     #[test]
