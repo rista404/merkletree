@@ -100,6 +100,19 @@ pub fn verify_proof<T: AsBytes>(
         return false;
     }
 
+    // check maximum index
+    let max_leaves_len = {
+        let proof_len = proof.len();
+        if proof_len == 1 {
+            1
+        } else {
+            2_usize.pow((proof_len - 1) as u32)
+        }
+    };
+    if index > max_leaves_len - 1 {
+        return false;
+    }
+
     let mut last_hash = value_hash;
     let mut last_idx = index;
     for witness in proof.iter().skip(1) {
@@ -309,6 +322,36 @@ mod tests {
         let seq = vec!["a"];
         let tree = MerkleTree::build(seq.clone());
         let proof = tree.proof_for_index(0);
+
         assert_eq!(false, verify_proof(proof.clone(), &seq[0], 1, tree.root()));
+        assert_eq!(false, verify_proof(proof.clone(), &seq[0], 3, tree.root()));
+    }
+
+    #[test]
+    fn it_fails_invalid_index_modulus() {
+        let seq = vec!["a", "b", "c"];
+        let tree = MerkleTree::build(seq.clone());
+        let proof_zero = tree.proof_for_index(0);
+
+        assert!(verify_proof(proof_zero.clone(), &seq[0], 0, tree.root()));
+        for idx in 1..=(seq.len() * 3) {
+            assert_eq!(
+                false,
+                verify_proof(proof_zero.clone(), &seq[0], idx, tree.root())
+            );
+        }
+
+        let proof_one = tree.proof_for_index(1);
+        assert!(verify_proof(proof_one.clone(), &seq[1], 1, tree.root()));
+        assert_eq!(
+            false,
+            verify_proof(proof_one.clone(), &seq[1], 0, tree.root())
+        );
+        for idx in 2..=(seq.len() * 3) {
+            assert_eq!(
+                false,
+                verify_proof(proof_one.clone(), &seq[1], idx, tree.root())
+            );
+        }
     }
 }
